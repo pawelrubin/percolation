@@ -5,7 +5,7 @@ use std::fs;
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
-    pub lattice_size: u32,
+    pub lattice_size: usize,
     pub number_of_trails: u32,
     pub min_probability: f32,
     pub max_probability: f32,
