@@ -13,4 +13,3 @@ serde = { version = "1.0", features = ["derive"] }
 
 [profile.dev]
 opt-level = 3
-debug = 0
