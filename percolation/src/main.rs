@@ -11,10 +11,9 @@ use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
 
 mod config;
 
-static SPARKLE: Emoji<'_, '_> = Emoji("✨", ":-)");
-static ROCKET: Emoji<'_, '_> = Emoji("🚀", "");
-static GEAR: Emoji<'_, '_> = Emoji("⚙️", "");
-static INFO: Emoji<'_, '_> = Emoji("ℹ️", "");
+static SPARKLE: Emoji<'_, '_> = Emoji("✨", ":)");
+static ROCKET: Emoji<'_, '_> = Emoji("🚀", ":o");
+static GEAR: Emoji<'_, '_> = Emoji("⚙️", ":)");
 
 fn get_config() -> config::Config {
     let args: Vec<String> = env::args().collect();
@@ -22,17 +21,18 @@ fn get_config() -> config::Config {
         2 => match config::read_config(&args[1]) {
             Ok(config) => {
                 println!(
-                    "\n{}  Successfully loaded the config file! {}",
-                    INFO, SPARKLE
+                    "\n{} Successfully loaded the config file! {}",
+                    SPARKLE, SPARKLE
                 );
                 println!(
-                    "{}  L = {}, T = {}, min_p = {}, max_p = {}, p_step = {}\n",
+                    "{}  L = {}, T = {}, p in {{{}, {}, {}, ..., {}}}\n",
                     GEAR,
                     config.lattice_size,
                     config.number_of_trails,
                     config.min_probability,
+                    config.min_probability + config.probability_step,
+                    config.min_probability + config.probability_step * 2.0,
                     config.max_probability,
-                    config.probability_step
                 );
                 config
             }
@@ -43,7 +43,7 @@ fn get_config() -> config::Config {
 }
 
 #[allow(dead_code)]
-fn print_lattice(lattice: &Vec<u8>, size: usize) {
+fn print_lattice(lattice: &Vec<usize>, size: usize) {
     for i in 0..size {
         for j in 0..size {
             print!("{:?} ", lattice[i * size + j]);
@@ -52,8 +52,8 @@ fn print_lattice(lattice: &Vec<u8>, size: usize) {
     }
 }
 
-fn burn_dfs(lattice: &mut Vec<u8>, size: usize) -> bool {
-    fn dfs(lattice: &mut Vec<u8>, i: usize, size: usize) -> bool {
+fn burn_dfs(lattice: &mut Vec<usize>, size: usize) -> bool {
+    fn dfs(lattice: &mut Vec<usize>, i: usize, size: usize) -> bool {
         // corners
         let top_left = 0;
         let top_right = size - 1;
@@ -88,6 +88,82 @@ fn burn_dfs(lattice: &mut Vec<u8>, size: usize) -> bool {
     })
 }
 
+fn hoshen_kopelman(lattice: &mut Vec<usize>, size: usize) -> Vec<i32> {
+    // corners
+    let top_left = 0;
+    let top_right = size - 1;
+    let mut k: usize = 2;
+
+    let mut m: Vec<i32> = vec![0; (size * size / 2 + 3) as usize];
+    for e in lattice.iter_mut() {
+        if *e == 1 {
+            *e = k;
+            m[k] = 1;
+            break;
+        }
+    }
+    if m.is_empty() {
+        return m;
+    }
+
+    for i in 0..size * size {
+        if lattice[i] == 1 {
+            let mut neighbors: Vec<usize> = match i {
+                i if i == top_right => vec![top_right - 1], // top right corner
+                i if i > top_left && i < top_right => vec![i - 1], // on the upper side
+                i if i % size == 0 => vec![i - size],       // on the left side
+                _ => vec![i - 1, i - size],                 // in the middle
+            };
+            neighbors = neighbors.into_iter().filter(|i| lattice[*i] != 0).collect();
+            match neighbors.len() {
+                0 => {
+                    k += 1;
+                    lattice[i] = k;
+                    m[k] = 1;
+                }
+                1 => {
+                    let mut k0 = lattice[neighbors.pop().unwrap()];
+                    while m[k0] < 0 {
+                        k0 = (-1 * m[k0]) as usize;
+                    }
+                    m[k0] += 1;
+                    lattice[i] = k0;
+                }
+                2 => {
+                    let mut k1 = lattice[neighbors.pop().unwrap()];
+                    let mut k2 = lattice[neighbors.pop().unwrap()];
+
+                    while m[k1] < 0 {
+                        k1 = (-1 * m[k1]) as usize;
+                    }
+
+                    while m[k2] < 0 {
+                        k2 = (-1 * m[k2]) as usize;
+                    }
+                    if k1 != k2 {
+                        lattice[i] = k1;
+                        m[k1] += m[k2] + 1;
+                        m[k2] = -1 * (k1 as i32);
+                    } else {
+                        lattice[i] = k1;
+                        m[k1] += 1;
+                    }
+                }
+                _ => panic!("This will never happen"),
+            }
+        }
+    }
+    m
+}
+
+fn reset_lattice(lattice: &mut Vec<usize>) {
+    for e in lattice.iter_mut() {
+        if *e == 2 {
+            *e = 1;
+        }
+    }
+}
+
 fn main() {
     let started = Instant::now();
     let mut rng = rand::thread_rng();
@@ -117,19 +193,22 @@ fn main() {
     );
     let mut i = 0;
     while p <= max_probability {
-        pb.set_message(&format!("p={:.3}", &p));
-        let burned: u32 = (0..number_of_trails)
-            .into_iter()
-            .map(|j| {
-                let mut lattice: Vec<u8> = (0..lattice_size * lattice_size)
-                    .map(|_| if rng.gen::<f32>() < p { 1 } else { 0 })
-                    .collect();
-                pb.set_position((i * number_of_trails + j) as u64);
-                burn_dfs(&mut lattice, lattice_size) as u32
-            })
-            .sum();
+        let mut burned = 0;
+        let mut sum_s_max = 0;
+        for j in 0..number_of_trails {
+            pb.set_message(&format!("p={:.3} [{}/{}]", &p, j, number_of_trails));
+            let mut lattice: Vec<usize> = (0..lattice_size * lattice_size)
+                .map(|_| if rng.gen::<f32>() < p { 1 } else { 0 })
+                .collect();
+            burned += burn_dfs(&mut lattice, lattice_size) as u32;
+            reset_lattice(&mut lattice);
+            let m = hoshen_kopelman(&mut lattice, lattice_size);
+            sum_s_max += (&m).iter().max().unwrap();
+            pb.set_position((i * number_of_trails + j) as u64);
+        }
         let p_flow = burned as f32 / number_of_trails as f32;
-        writeln!(output_file, "{}", format!("{} {}", p, p_flow)).unwrap();
+        let avg_s_max = sum_s_max as f32 / number_of_trails as f32;
+        writeln!(output_file, "{}", format!("{} {} {}", p, p_flow, avg_s_max)).unwrap();
         p += probability_step;
         i += 1;
     }
