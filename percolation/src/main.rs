@@ -1,5 +1,6 @@
 use rand::Rng;
 
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::fs::OpenOptions;
@@ -24,15 +25,35 @@ fn get_config() -> config::Config {
                     "\n{} Successfully loaded the config file! {}",
                     SPARKLE, SPARKLE
                 );
+                let prob_format = match config.mode {
+                    config::Mode::Ave => format!(
+                        "{{{}, {}, {}, ..., {}}}",
+                        config.min_probability,
+                        config.min_probability + config.probability_step,
+                        config.min_probability + config.probability_step * 2.0,
+                        config.max_probability
+                    ),
+                    config::Mode::Dist => {
+                        format!(
+                            "{}  mode: {:?}\n{}  L = {}, T = {}, p in {:?}\n",
+                            GEAR,
+                            config.mode,
+                            GEAR,
+                            config.lattice_size,
+                            config.number_of_trails,
+                            config.probabilities
+                        )
+                    }
+                };
+
                 println!(
-                    "{}  L = {}, T = {}, p in {{{}, {}, {}, ..., {}}}\n",
+                    "{}  mode: {:?}\n{}  L = {}, T = {}, p in {}\n",
+                    GEAR,
+                    config.mode,
                     GEAR,
                     config.lattice_size,
                     config.number_of_trails,
-                    config.min_probability,
-                    config.min_probability + config.probability_step,
-                    config.min_probability + config.probability_step * 2.0,
-                    config.max_probability,
+                    prob_format,
                 );
                 config
             }
@@ -173,50 +194,99 @@ fn main() {
         min_probability,
         max_probability,
         probability_step,
+        mode,
+        probabilities,
     } = get_config();
-    let output_file_path = format!("output/AveL{}T{}.txt", lattice_size, number_of_trails);
-    fs::remove_file(&output_file_path).ok();
-    let mut output_file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(output_file_path)
-        .unwrap();
-
-    let mut p = min_probability;
-    let count =
-        (((max_probability - min_probability) / probability_step) as u64) * number_of_trails as u64;
-    let pb = ProgressBar::new(count);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:42.cyan/blue} {msg}")
-            .progress_chars("#>-"),
-    );
-    let mut i = 0;
-    while p <= max_probability {
-        let mut burned = 0;
-        let mut sum_s_max = 0;
-        for j in 0..number_of_trails {
-            pb.set_message(&format!("p={:.3} [{}/{}]", &p, j, number_of_trails));
-            let mut lattice: Vec<usize> = (0..lattice_size * lattice_size)
-                .map(|_| if rng.gen::<f32>() < p { 1 } else { 0 })
-                .collect();
-            burned += burn_dfs(&mut lattice, lattice_size) as u32;
-            reset_lattice(&mut lattice);
-            let m = hoshen_kopelman(&mut lattice, lattice_size);
-            sum_s_max += (&m).iter().max().unwrap();
-            pb.set_position((i * number_of_trails + j) as u64);
+    match mode {
+        config::Mode::Ave => {
+            let output_file_path = format!("output/Ave_L{}T{}.txt", lattice_size, number_of_trails);
+            fs::remove_file(&output_file_path).ok();
+            let mut output_file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(output_file_path)
+                .unwrap();
+            let mut p = min_probability;
+            let count = (((max_probability - min_probability) / probability_step) as u64)
+                * number_of_trails as u64;
+            let pb = ProgressBar::new(count);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("[{elapsed_precise}] {bar:42.cyan/blue} {msg}")
+                    .progress_chars("#>-"),
+            );
+            let mut i = 0;
+            while p <= max_probability {
+                let mut burned = 0;
+                let mut sum_s_max = 0;
+                for j in 0..number_of_trails {
+                    pb.set_message(&format!("p={:.3} [{}/{}]", &p, j, number_of_trails));
+                    let mut lattice: Vec<usize> = (0..lattice_size * lattice_size)
+                        .map(|_| if rng.gen::<f32>() < p { 1 } else { 0 })
+                        .collect();
+                    burned += burn_dfs(&mut lattice, lattice_size) as u32;
+                    reset_lattice(&mut lattice);
+                    let m = hoshen_kopelman(&mut lattice, lattice_size);
+                    sum_s_max += (&m).iter().max().unwrap();
+                    pb.set_position((i * number_of_trails + j) as u64);
+                }
+                let p_flow = burned as f32 / number_of_trails as f32;
+                let avg_s_max = sum_s_max as f32 / number_of_trails as f32;
+                writeln!(output_file, "{}", format!("{} {} {}", p, p_flow, avg_s_max)).unwrap();
+                p += probability_step;
+                i += 1;
+            }
+            pb.finish_and_clear();
+            println!(
+                "{} Done in {} {}",
+                SPARKLE,
+                HumanDuration(started.elapsed()),
+                ROCKET
+            );
         }
-        let p_flow = burned as f32 / number_of_trails as f32;
-        let avg_s_max = sum_s_max as f32 / number_of_trails as f32;
-        writeln!(output_file, "{}", format!("{} {} {}", p, p_flow, avg_s_max)).unwrap();
-        p += probability_step;
-        i += 1;
+        config::Mode::Dist => {
+            let pb = ProgressBar::new((probabilities.len() as u32 * number_of_trails) as u64);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("[{elapsed_precise}] {bar:42.cyan/blue} {msg}")
+                    .progress_chars("#>-"),
+            );
+            for (i, p) in probabilities.iter().enumerate() {
+                let output_file_path = format!(
+                    "output/Dist_p{}L{}T{}.txt",
+                    p, lattice_size, number_of_trails
+                );
+                fs::remove_file(&output_file_path).ok();
+                let mut output_file = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(output_file_path)
+                    .unwrap();
+                let mut dist: HashMap<i32, i32> = HashMap::new();
+                for j in 0..number_of_trails {
+                    pb.set_message(&format!("p={} [{}/{}]", &p, j, number_of_trails));
+                    pb.set_position(((i as u32) * number_of_trails + j) as u64);
+                    let mut lattice: Vec<usize> = (0..lattice_size * lattice_size)
+                        .map(|_| if rng.gen::<f32>() < *p { 1 } else { 0 })
+                        .collect();
+                    for k in hoshen_kopelman(&mut lattice, lattice_size).iter() {
+                        if *k > 0 {
+                            let entry = dist.entry(*k).or_insert(0);
+                            *entry += 1;
+                        }
+                    }
+                }
+                for (s, n) in dist {
+                    writeln!(output_file, "{}", format!("{} {}", s, n)).unwrap();
+                }
+            }
+            pb.finish_and_clear();
+            println!(
+                "{} Done in {} {}",
+                SPARKLE,
+                HumanDuration(started.elapsed()),
+                ROCKET
+            );
+        }
     }
-    pb.finish_and_clear();
-    println!(
-        "{} Done in {} {}",
-        SPARKLE,
-        HumanDuration(started.elapsed()),
-        ROCKET
-    );
 }

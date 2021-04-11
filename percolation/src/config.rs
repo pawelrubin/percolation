@@ -3,6 +3,12 @@ use serde_json::Result;
 use std::fs;
 
 #[derive(Serialize, Deserialize, Debug)]
+pub enum Mode {
+    Ave,
+    Dist,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub lattice_size: usize,
@@ -10,6 +16,8 @@ pub struct Config {
     pub min_probability: f32,
     pub max_probability: f32,
     pub probability_step: f32,
+    pub mode: Mode,
+    pub probabilities: Vec<f32>,
 }
 
 pub fn read_config(config_path: &String) -> Result<Config> {
