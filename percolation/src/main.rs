@@ -74,38 +74,40 @@ fn print_lattice(lattice: &Vec<usize>, size: usize) {
 }
 
 fn burn_dfs(lattice: &mut Vec<usize>, size: usize) -> bool {
-    fn dfs(lattice: &mut Vec<usize>, i: usize, size: usize) -> bool {
-        // corners
-        let top_left = 0;
-        let top_right = size - 1;
-        let bottom_right = size * size - 1;
-        let bottom_left = size * size - size;
-        // if this is the last row, we found the spanning cluster
-        if (i >= bottom_left) && (i <= bottom_right) {
-            return true;
-        }
-        // get neighbors
-        let neighbour_indices = match i {
-            i if i == top_left => vec![size, 1],
-            i if i == top_right => vec![top_right + size, top_right - 1],
-            i if i >= top_left && i <= top_right => vec![i + size, i - 1, i + 1], // on the upper side
-            i if i % size == 0 => vec![i + size, i + 1, i - size], // on the left side
-            i if i / size == size - 1 => vec![i + size, i - 1, i - size], // on the right side
-            _ => vec![i + size, i - 1, i + 1, i - size],           // in the middle
-        };
-        neighbour_indices.into_iter().any(|neighbour| {
-            lattice[neighbour] == 1 && {
-                lattice[neighbour] = 2;
-                dfs(lattice, neighbour, size)
-            }
-        })
-    }
+    // corners
+    let top_left = 0;
+    let top_right = size - 1;
+    let bottom_right = size * size - 1;
+    let bottom_left = size * size - size;
 
     (0..size).into_iter().any(|i| {
-        lattice[i] == 1 && {
-            lattice[i] = 2;
-            dfs(lattice, i, size)
+        let mut stack: Vec<usize> = Vec::with_capacity(size * size / 2 as usize);
+        stack.push(i);
+        while !stack.is_empty() {
+            let current = stack.pop().unwrap();
+            if lattice[current] == 1 {
+                lattice[current] = 2;
+                match current {
+                    // if this is the last row, we found the spanning cluster
+                    i if (i >= bottom_left) && (i <= bottom_right) => return true,
+                    // top-left corner
+                    i if i == top_left => stack.extend(vec![1, size]),
+                    // top-right corner
+                    i if i == top_right => stack.extend(vec![top_right - 1, top_right + size]),
+                    // on the upper side
+                    i if i > top_left && i < top_right => {
+                        stack.extend(vec![i - 1, i + 1, i + size])
+                    }
+                    // on the left side
+                    i if i % size == 0 => stack.extend(vec![i - size, i + 1, i + size]),
+                    // on the right side
+                    i if i / size == size - 1 => stack.extend(vec![i - size, i - 1, i + size]),
+                    // in the middle
+                    i => stack.extend(vec![i - size, i - 1, i + 1, i + size]),
+                };
+            }
         }
+        false
     })
 }
 
