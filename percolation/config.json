@@ -1,7 +1,18 @@
 {
     "latticeSize": 100,
-    "numberOfTrails": 1000,
+    "numberOfTrails": 10000,
     "minProbability": 0.01,
-    "maxProbability": 1.0,
-    "probabilityStep": 0.01
+    "maxProbability": 1.00,
+    "probabilityStep": 0.01,
+    "mode": "Ave",
+    "probabilities": [
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.592746,
+        0.6,
+        0.7,
+        0.8
+    ]
 }
