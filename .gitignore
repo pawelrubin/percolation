@@ -1,4 +1,6 @@
-*/output*
+**/output*
 output
 .DS_Store
 .vscode
+target/
+plot*

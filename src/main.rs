@@ -9,7 +9,6 @@ use std::time::Instant;
 
 use console::Emoji;
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
-use oorandom;
 use rayon::prelude::*;
 
 mod config;
@@ -185,7 +184,6 @@ fn reset_lattice(lattice: &mut Vec<usize>) {
 
 fn main() {
     let started = Instant::now();
-    let rng_seed = rand::thread_rng().gen::<u64>();
     let config::Config {
         lattice_size,
         number_of_trails,
@@ -205,37 +203,26 @@ fn main() {
                 .open(output_file_path)
                 .unwrap();
             let mut p = min_probability;
-            let count = (((max_probability - min_probability) / probability_step) as u64)
-                * number_of_trails as u64;
-            let pb = ProgressBar::new(count);
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("[{elapsed_precise}] {bar:42.cyan/blue} {msg}")
-                    .progress_chars("#>-"),
-            );
             while p <= max_probability {
                 let (burned, sum_s_max) = (0..number_of_trails)
                     .into_par_iter()
-                    .map_init(
-                        || oorandom::Rand32::new(rng_seed),
-                        |rng, _| {
-                            let mut lattice: Vec<usize> = (0..lattice_size * lattice_size)
-                                .map(|_| if rng.rand_float() < p { 1 } else { 0 })
-                                .collect();
-                            let burned = burn_dfs(&mut lattice, lattice_size) as u32;
-                            reset_lattice(&mut lattice);
-                            let m = hoshen_kopelman(&mut lattice, lattice_size);
-                            let sum_s = (&m).iter().max().unwrap();
-                            (burned, *sum_s as u32)
-                        },
-                    )
+                    .map(|_| {
+                        let mut rng = rand::thread_rng();
+                        let mut lattice: Vec<usize> = (0..lattice_size * lattice_size)
+                            .map(|_| if rng.gen_bool(p as f64) { 1 } else { 0 })
+                            .collect();
+                        let burned = burn_dfs(&mut lattice, lattice_size) as u32;
+                        reset_lattice(&mut lattice);
+                        let m = hoshen_kopelman(&mut lattice, lattice_size);
+                        let sum_s = (&m).iter().max().unwrap();
+                        (burned, *sum_s as u32)
+                    })
                     .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
                 let p_flow = burned as f32 / number_of_trails as f32;
                 let avg_s_max = sum_s_max as f32 / number_of_trails as f32;
                 writeln!(output_file, "{}", format!("{} {} {}", p, p_flow, avg_s_max)).unwrap();
                 p += probability_step;
             }
-            pb.finish_and_clear();
             println!(
                 "{} Done in {} {}",
                 SPARKLE,
@@ -264,7 +251,8 @@ fn main() {
                     .unwrap();
                 let mut dist: HashMap<i32, i32> = HashMap::new();
                 for j in 0..number_of_trails {
-                    pb.set_message(&format!("p={} [{}/{}]", &p, j, number_of_trails));
+                    // TODO: fix this?
+                    // pb.set_message(&format!("p={} [{}/{}]", &p, j, number_of_trails));
                     pb.set_position(((i as u32) * number_of_trails + j) as u64);
                     let mut lattice: Vec<usize> = (0..lattice_size * lattice_size)
                         .map(|_| if rng.gen::<f32>() < *p { 1 } else { 0 })
